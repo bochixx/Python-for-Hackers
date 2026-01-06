@@ -1,6 +1,6 @@
 """
 Creating a simple TCP Client
-Pointers:
+Notes:
 - SOCK_Stream defines that this is going to be a TCP Client
 - The data that we send needs to be in bytes thus encoding is used
 """

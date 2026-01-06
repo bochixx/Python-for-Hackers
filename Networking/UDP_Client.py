@@ -1,6 +1,6 @@
 """
 Creating a simple UDP Client
-Pointers:
+Notes:
 - UDP is a connectionless protocol
 - Thus, there is no need to establish a connection before sending data
 - SOCK_DGRAM defines that this is going to be a UDP Client
