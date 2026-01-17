@@ -1,5 +1,5 @@
 """
-- Code Mapping Open Source Web App Installations
+- Code Mapping Wordpress endpoints to identify sensitive files
 - Applicable for platforms like Joomla, WordPress, Drupal, etc
 """
 
@@ -13,9 +13,16 @@ init(autoreset=True)
 
 threads = 10
 
-target = "https://example.com/"
+target = ""
 directory = "./Wordpress"
 filters = [".jpg", ".gif", ".png", ".css"]
+wordlist = "./Wordpress/wpJuicy.txt"
+sensitive_files = []
+
+sensitive_endpoints = []
+if os.path.exists(wordlist):
+    with open(wordlist, 'r') as f:
+        sensitive_endpoints = [line.strip() for line in f.readlines()]
 
 os.chdir(directory)
 
@@ -40,6 +47,8 @@ def test_remote():
 
             if status == 200:
                 color = Fore.GREEN
+                if (path in sensitive_endpoints) and (response.text.strip() != ""):
+                    sensitive_files.append(url)
             elif status in (301, 302):
                 color = Fore.CYAN
             elif status == 401:
@@ -65,10 +74,22 @@ def test_remote():
             web_paths.task_done()
 
 
-for i in range(threads):
-    print(f"Spawning thread: {i}")
-    t = threading.Thread(target=test_remote)
-    t.start()
+def main():
+    global target
+    target = input("Enter the target: ").strip()
+    for i in range(threads):
+        print(f"Spawning thread: {i}")
+        t = threading.Thread(target=test_remote)
+        t.start()
 
-web_paths.join()
-print("Scan complete!")
+    web_paths.join()
+    print("+---------------------------------------------------------------------+")
+    print("[*] Possible sensitive file found: ")
+    for sensitive in sensitive_files:
+        print(f"{Fore.RED}{sensitive}{Style.RESET_ALL}")
+    print("+---------------------------------------------------------------------+")
+    print("Scan complete!")
+
+
+if __name__ == "__main__":
+    main()
