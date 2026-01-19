@@ -62,7 +62,13 @@ def test_remote():
             else:
                 color = Fore.WHITE
 
-            print(f"{color}{status} => {url}{Style.RESET_ALL}")
+            print(
+                    f"{color}"
+                    f"{status:<3} => "
+                    f"{url:<60} => "
+                    f"Size: {len(response.content):>10}"
+                    f"{Style.RESET_ALL}"
+                )
 
             response.close()
         
