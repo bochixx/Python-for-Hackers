@@ -1,43 +1,80 @@
 import requests
 import threading
 import queue
+import argparse
+from tqdm import tqdm
 from colorama import Fore, Style, init
 
 init(autoreset=True)
 
 
-threads = 10
-target = ""
-wordlist = "./common.txt"
+default_threads = 10
+default_wordlist = "./common.txt"
+default_timeout = 10
 resume = None
 user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:19.0) Gecko/20100101 Firefox/19.0"
+
+print_lock = threading.Lock()
+file_lock = threading.Lock()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Directory Bruteforcer",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    parser.add_argument(
+        "-t", "--target", 
+        required=True, 
+        help="Target URL (e.g.: https://example.com)")
+    
+    parser.add_argument(
+        "-w", "--wordlist",
+        default=default_wordlist,
+        help="Wordlist that you want to use for bruteforcing")
+    
+    parser.add_argument(
+        "-T", "--threads", 
+        type=int,
+        default=default_threads,
+        help="Specify the number of threads to use")
+    
+    parser.add_argument(
+        "-e", "--extension", 
+        default=".php,.bak,.orig,.inc", 
+        help="Comma Separated list of extensions")
+    
+    parser.add_argument(
+        "--timeout", 
+        type=int,
+        default=default_timeout,
+        help="Timeout for every request to wait")
+    
+    parser.add_argument(
+        "-s", "--status-filter", 
+        help="Comma Separated HTTP status codes to focus on (e.g.: 200, 403)")
+    
+    parser.add_argument(
+        "-o", "--output", 
+        help="Output file")
+    
+    return parser, parser.parse_args()
 
 
 def build_wordlist(wordlist):
     # read the wordlist file
-    data = open(wordlist, "r")
-    raw_words = data.readlines()
-    data.close()
+    with open(wordlist, "r") as f:
+        words = [w.strip() for w in f.readlines()]
 
-    found_resume = False
-    words = queue.Queue()
+    q = queue.Queue()
+    for word in words:
+        q.put(word)
 
-    for word in raw_words:
-        word = word.strip()
-        if resume is not None:
-            if found_resume:
-                words.put(word)
-            else:
-                if word == resume:
-                    found_resume = True
-                    print(f"Resuming wordlist from {resume}")
-        else:
-            words.put(word)
-    
-    return words
+    return q, len(words)
 
 
-def dir_bruter(word_queue, extensions = None):
+def dir_bruter(word_queue, target, extensions, timeout, status_filter, pbar, output):
     headers = {
             "User-Agent": user_agent
         }
@@ -52,21 +89,24 @@ def dir_bruter(word_queue, extensions = None):
             attempt_list.append(f"/{attempt}/")
         else:
             attempt_list.append(f"/{attempt}")
-
-        # if we want to bruteforce extensions
-        if extensions:
-            for ext in extensions:
-                attempt_list.append(f"/{attempt}{ext}")
         
         # iterate over our list of attempts
         for brute in attempt_list:
             try:
                 url = f"{target.rstrip('/')}{brute}"
-                response = requests.get(url, headers=headers, timeout=10)
+                response = requests.get(url, headers=headers, timeout = timeout)
 
                 status = response.status_code
 
-                if status == 200 and (response.text.strip() != ""):
+                if status_filter and (status not in status_filter):
+                    continue
+                
+                # if extensions are specified, only show matching URLs
+                if extensions:
+                    if not any(url.endswith(f".{ext.lstrip('.')}") for ext in extensions):
+                        continue
+
+                if status == 200 and (response.text.strip()):
                     color = Fore.GREEN
                 elif status in (301, 302):
                     color = Fore.CYAN
@@ -81,34 +121,59 @@ def dir_bruter(word_queue, extensions = None):
                 else:
                     color = Fore.WHITE
 
-                print(
-                    f"{color}"
-                    f"{status:<3} => "
-                    f"{url:<60} => "
-                    f"Size: {len(response.content):>10}"
-                    f"{Style.RESET_ALL}"
-                )
+                with print_lock:
+                    print(
+                        f"{color}"
+                        f"{status:<3} => "
+                        f"{url:<60} => "
+                        f"Size: {len(response.content):>10}"
+                        f"{Style.RESET_ALL}"
+                    )
 
                 response.close()
 
             except requests.exceptions.RequestException as e:
-                print(f"[ERROR] {url} -> {e}")
+                # print(f"[ERROR] {url} -> {e}")
+                pass
+            finally:
+                pbar.update(1)
 
 
 def main():
-    global target
-    target = input("Enter the target: ").strip()
-    word_queue = build_wordlist(wordlist)
-    extensions = [".php", ".bak", ".orig", ".inc"]
-    threads_list = []
+    parser, args = parse_args()
 
-    for i in range(threads):
-        t = threading.Thread(target=dir_bruter, args=(word_queue, extensions,))
+    extensions = [e.strip() for e in args.extension.split(",") if e.strip()]
+    status_filter = (
+        set(map(int, args.status_filter.split(",")))
+        if args.status_filter else None
+    )
+
+    word_queue, word_count = build_wordlist(args.wordlist)
+    
+    total_requests = word_count * (1 + len(extensions))
+    pbar = tqdm(total=total_requests, desc="Status", unit="req")
+
+    threads_list = []
+    for _ in range(args.threads):
+        t = threading.Thread(
+            target=dir_bruter, 
+            args=(
+                word_queue,
+                args.target, 
+                extensions,
+                args.timeout,
+                status_filter,
+                pbar,
+                args.output,
+            )
+        )
         t.start()
         threads_list.append(t)
 
     for t in threads_list:
         t.join()
+
+    pbar.close()
 
 
 if __name__ == "__main__":
